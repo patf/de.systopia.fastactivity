@@ -57,6 +57,12 @@ class CRM_Fastactivity_Form_Report_FastActivity extends CRM_Report_Form {
                     'title'      => E::ts('Activity ID'),
                     'required'   => TRUE,
                 ),
+              'contact_source_id' => array(
+                'no_display' => TRUE,
+                'title'   => E::ts('Source Contact ID'),
+                'required' => TRUE,
+                'default'  => TRUE,
+              ),
                 'target_sort_name' => array(
                     'title'   => E::ts('Target Contact'),
                     'default' => TRUE,
@@ -189,14 +195,12 @@ class CRM_Fastactivity_Form_Report_FastActivity extends CRM_Report_Form {
 
     $activityContacts = CRM_Activity_BAO_ActivityContact::buildOptions('record_type_id', 'validate');
 
+    $sourceID = CRM_Utils_Array::key('Activity Source', $activityContacts);
+    $this->_from .= " LEFT JOIN civicrm_activity_contact fa_source ON fa_source.activity_id = {$this->_aliases['civicrm_activity']}.id AND fa_source.record_type_id = {$sourceID}";
+
     if (!empty($this->_formValues['assignee_ids_value']) || $this->isNullOperator($this->_formValues['assignee_ids_op'])) {
       $assigneeID = CRM_Utils_Array::key('Activity Assignees', $activityContacts);
       $this->_from .= " LEFT JOIN civicrm_activity_contact fa_assignee ON fa_assignee.activity_id = {$this->_aliases['civicrm_activity']}.id AND fa_assignee.record_type_id = {$assigneeID}";
-    }
-
-    if (!empty($this->_formValues['source_ids_value']) || $this->isNullOperator($this->_formValues['source_ids_op'])) {
-      $sourceID = CRM_Utils_Array::key('Activity Source', $activityContacts);
-      $this->_from .= " LEFT JOIN civicrm_activity_contact fa_source ON fa_source.activity_id = {$this->_aliases['civicrm_activity']}.id AND fa_source.record_type_id = {$sourceID}";
     }
 
     if (!empty($this->_formValues['fields']['target_sort_name'])) {
@@ -227,7 +231,10 @@ class CRM_Fastactivity_Form_Report_FastActivity extends CRM_Report_Form {
    * @return string
    */
   function selectClause(&$tableName, $tableKey, &$fieldName, &$field) {
-    if ($fieldName == 'target_sort_name') {
+    if ($fieldName == 'contact_source_id') {
+      $this->_columnHeaders["contact_source_id"]['no_display'] = TRUE;
+      return "fa_source.contact_id as contact_source_id";
+    } elseif ($fieldName == 'target_sort_name') {
       $this->_columnHeaders['target_sort_name']['title']       = CRM_Utils_Array::value('title', $field);
       $this->_columnHeaders['target_sort_name']['type']        = CRM_Utils_Array::value('type', $field);
       $this->_columnHeaders['target_contact_id']['no_display'] = TRUE;
@@ -332,28 +339,31 @@ class CRM_Fastactivity_Form_Report_FastActivity extends CRM_Report_Form {
         $rows[$rowNum]['civicrm_activity_activity_type_id'] = $this->activityTypes[$row['civicrm_activity_activity_type_id']];
       }
 
-      // link to activity
-      if (!empty($row['civicrm_activity_activity_type_id']) || !empty($row['civicrm_activity_activity_subject'])) {
+      if (!empty($row['civicrm_activity_activity_type_id']) ||
+        !empty($row['civicrm_activity_activity_subject']) ||
+        array_key_exists('actions', $row))
+      {
         // generate activity link
-        $link = NULL;
-        //$base = "civicrm/activity/view"; // todo: allow "civicrm/fastactivity/view"?
-        $base = "civicrm/fastactivity/view";
         if (!empty($row['target_contact_id'])) {
-          //$link = CRM_Utils_System::url($base, "action=view&reset=1&id={$row['civicrm_activity_id']}&cid={$row['target_contact_id']}", $this->_absoluteUrl);
-          $link = CRM_Utils_System::url($base, "action=view&reset=1&id={$row['civicrm_activity_id']}&cid={$row['target_contact_id']}", $this->_absoluteUrl);
+          $targets = explode(';', $row['target_contact_id']);
+          $cid = $targets[0];
         } elseif (!empty($row['assignee_contact_id'])) {
-          //$link = CRM_Utils_System::url($base, "action=view&reset=1&id={$row['civicrm_activity_id']}&cid={$row['assignee_contact_id']}", $this->_absoluteUrl);
-          $link = CRM_Utils_System::url($base, "action=view&reset=1&id={$row['civicrm_activity_id']}&cid={$row['assignee_contact_id']}", $this->_absoluteUrl);
+          $assignees = explode(';', $row['assignee_contact_id']);
+          $cid = $assignees[0];
+        } else {
+          $cid = $row['contact_source_id'];
         }
 
-        if ($link) {
-          if (!empty($row['civicrm_activity_activity_type_id'])) {
-            $rows[$rowNum]['civicrm_activity_activity_type_id_link'] = $link;
-          }
-          if (!empty($row['civicrm_activity_activity_subject'])) {
-            $rows[$rowNum]['civicrm_activity_activity_subject_link'] = $link;
-          }
-        }
+        $base = "civicrm/fastactivity/view";
+        $view_link = CRM_Utils_System::url($base, "action=view&reset=1&id={$row['civicrm_activity_id']}&cid={$cid}", $this->_absoluteUrl);
+      }
+
+      if (!empty($row['civicrm_activity_activity_type_id'])) {
+        $rows[$rowNum]['civicrm_activity_activity_type_id_link'] = $view_link;
+      }
+
+      if (!empty($row['civicrm_activity_activity_subject'])) {
+        $rows[$rowNum]['civicrm_activity_activity_subject_link'] = $view_link;
       }
 
       // resolve activity status
@@ -391,16 +401,8 @@ class CRM_Fastactivity_Form_Report_FastActivity extends CRM_Report_Form {
 
       // fill actions
       if (array_key_exists('actions', $row)) {
-        $cid = '';
-        if (!empty($row['target_contact_id'])) {
-          $cid = "&cid={$row['target_contact_id']}";
-        }
-        elseif (!empty($row['assignee_contact_id'])) {
-          $cid = "&cid={$row['assignee_contact_id']}";
-        }
-        $view_link = CRM_Utils_System::url("civicrm/fastactivity/view", "action=view&id={$row['civicrm_activity_id']}{$cid}", $this->_absoluteUrl);
         $view_name = E::ts("View");
-        $edit_link = CRM_Utils_System::url("civicrm/fastactivity/add", "action=update&reset=1&id={$row['civicrm_activity_id']}{$cid}", $this->_absoluteUrl);
+        $edit_link = CRM_Utils_System::url("civicrm/fastactivity/add", "action=update&reset=1&id={$row['civicrm_activity_id']}&cid={$cid}", $this->_absoluteUrl);
         $edit_name = E::ts("Edit");
         $rows[$rowNum]['actions'] = "<span><a class='crm-popup' href='{$view_link}'>{$view_name}</a> <a class='crm-popup' href='{$edit_link}'>{$edit_name}</a></span>";
       }
