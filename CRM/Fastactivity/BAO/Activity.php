@@ -202,6 +202,11 @@ class CRM_Fastactivity_BAO_Activity extends CRM_Activity_DAO_Activity {
   public static function whereClause(&$params, $sortBy = TRUE, $excludeHidden = TRUE) {
     // activity type ID clause
     $activity_type_id = CRM_Utils_Array::value('activity_type_id', $params);
+    $activity_type_exclude_id = CRM_Utils_Array::value('activity_type_exclude_id', $params);
+    $activity_date_relative = CRM_Utils_Array::value('activity_date_relative', $params);
+    $activity_date_low = CRM_Utils_Array::value('activity_date_low', $params);
+    $activity_date_high = CRM_Utils_Array::value('activity_date_high', $params);
+    $activity_status_id = CRM_Utils_Array::value('activity_status_id', $params);
     $excludeCaseActivities = CRM_Utils_Array::value('excludeCaseActivities', $params, TRUE);
 
     // contact_id
@@ -214,6 +219,27 @@ class CRM_Fastactivity_BAO_Activity extends CRM_Activity_DAO_Activity {
     if (!empty($activity_type_id)) {
       $clauses[] = "activity.activity_type_id IN ( " . $activity_type_id . " ) ";
     }
+    if (!empty($activity_type_exclude_id)) {
+      $clauses[] = "activity.activity_type_id NOT IN ( " . $activity_type_exclude_id . " ) ";
+    }
+    if (!empty($activity_status_id)) {
+      $clauses[] = "activity.status_id IN ( " . $activity_status_id . " ) ";
+    }
+    if (!empty($activity_date_relative)) {
+      list($from, $to) = CRM_Utils_Date::getFromTo($activity_date_relative, NULL, NULL);
+      $clauses[] = 'activity.activity_date_time BETWEEN "' . $from . '" AND "' . $to . '" ';
+    }
+    else {
+      if (!empty($activity_date_low)) {
+        $from = CRM_Utils_Date::processDate($activity_date_low);
+        $clauses[] = 'activity.activity_date_time >= "' . $from . '"';
+      }
+      if (!empty($activity_date_high)) {
+        $to = CRM_Utils_Date::processDate($activity_date_high);
+        $clauses[] = 'activity.activity_date_time <= "' . $to . '"';
+      }
+    }
+
     $clauses[] = "activity.is_current_revision != 0";
     $clauses[] = "activity.is_deleted = 0";
 
