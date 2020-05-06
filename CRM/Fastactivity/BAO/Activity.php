@@ -217,26 +217,33 @@ class CRM_Fastactivity_BAO_Activity extends CRM_Activity_DAO_Activity {
     }
 
     if (!empty($activity_type_id)) {
-      $clauses[] = "activity.activity_type_id IN ( " . $activity_type_id . " ) ";
+      $clauses[] = "activity.activity_type_id IN (%2)";
+      $params[2] = [$activity_type_id, 'CommaSeparatedIntegers'];
     }
     if (!empty($activity_type_exclude_id)) {
-      $clauses[] = "activity.activity_type_id NOT IN ( " . $activity_type_exclude_id . " ) ";
+      $clauses[] = "activity.activity_type_id NOT IN (%3)";
+      $params[3] = [$activity_type_exclude_id, 'CommaSeparatedIntegers'];
     }
     if (!empty($activity_status_id)) {
-      $clauses[] = "activity.status_id IN ( " . $activity_status_id . " ) ";
+      $clauses[] = "activity.status_id IN (%4)";
+      $params[4] = [$activity_status_id, 'CommaSeparatedIntegers'];
     }
     if (!empty($activity_date_relative)) {
       list($from, $to) = CRM_Utils_Date::getFromTo($activity_date_relative, NULL, NULL);
-      $clauses[] = 'activity.activity_date_time BETWEEN "' . $from . '" AND "' . $to . '" ';
+      $clauses[] = 'activity.activity_date_time BETWEEN %5 AND %6';
+      $params[5] = [$from, 'String'];
+      $params[6] = [$to, 'String'];
     }
     else {
       if (!empty($activity_date_low)) {
         $from = CRM_Utils_Date::processDate($activity_date_low);
-        $clauses[] = 'activity.activity_date_time >= "' . $from . '"';
+        $clauses[] = 'activity.activity_date_time >= %5';
+        $params[5] = [$from, 'String'];
       }
       if (!empty($activity_date_high)) {
         $to = CRM_Utils_Date::processDate($activity_date_high);
-        $clauses[] = 'activity.activity_date_time <= "' . $to . '"';
+        $clauses[] = 'activity.activity_date_time <= %6';
+        $params[6] = [$to, 'String'];
       }
     }
 
@@ -275,7 +282,8 @@ class CRM_Fastactivity_BAO_Activity extends CRM_Activity_DAO_Activity {
           }
           // Convert to string for query
           $activity_campaign_id = implode(',', $searchCampaignIds);
-          $clauses[] = "activity.campaign_id IN ( " . $activity_campaign_id . " ) ";
+          $clauses[] = "activity.campaign_id IN (%7)";
+          $params[7] = [$activity_campaign_id, 'CommaSeparatedIntegers'];
         }
       }
     }
