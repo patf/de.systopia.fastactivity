@@ -55,11 +55,18 @@ class CRM_Fastactivity_BAO_Activity extends CRM_Activity_DAO_Activity {
       $orderBy = ' ORDER BY ' . CRM_Utils_Type::escape($params['sort'], 'String');
     }
 
+    $outerOrderBy = ' ORDER BY inner_result.activity_date_time DESC';
+    if (!empty($params['outerSort'])) {
+      $outerOrderBy = ' ORDER BY ' . CRM_Utils_Type::escape($params['outerSort'], 'String');
+    }
+
     // The main query.  This gets all the information (except target counts) for the tabbed activity display
     // We can't do anything with targets (like see if our contact is listed) as it slows down the query too much on large datasets
     list($selectClause, $groupByClause) = self::selectClause($params);
+    list($outerSelectClause, $outerJoinQuery, $outerGroupByClause) = self::outerSelectClause($params);
 
-    $query = "{$selectClause} WHERE {$whereClause} {$groupByClause} {$orderBy} {$limit}";
+    $innerQuery = "{$selectClause} WHERE {$whereClause} {$groupByClause} {$orderBy} {$limit}";
+    $query = "{$outerSelectClause} FROM ({$innerQuery}) inner_result {$outerJoinQuery} {$outerGroupByClause} {$outerOrderBy}";
     $dao = CRM_Core_DAO::executeQuery($query, $params);
 
     //get all activity types
@@ -106,57 +113,92 @@ class CRM_Fastactivity_BAO_Activity extends CRM_Activity_DAO_Activity {
     return $values;
   }
 
-  public static function selectClause($params) {
-    $select[] = 'activity.id                                                                        AS activity_id';
-    $groupBy[] = 'activity.id';
-    $select[] = 'activity.activity_type_id                                                          AS activity_type_id';
-    $select[] = 'activity.subject                                                                   AS activity_subject';
-    $select[] = 'activity.activity_date_time                                                        AS activity_date_time';
-    $select[] = 'activity.status_id                                                                 AS activity_status_id';
+  public static function outerSelectClause($params) {
+    $select[] = 'inner_result.activity_id AS activity_id';
+    $groupBy[] = 'inner_result.activity_id';
+    $select[] = 'inner_result.activity_type_id AS activity_type_id';
+    $select[] = 'inner_result.activity_subject AS activity_subject';
+    $select[] = 'inner_result.activity_date_time AS activity_date_time';
+    $select[] = 'inner_result.activity_status_id AS activity_status_id';
     $select[] = 'recurring_entity.parent_id AS activity_parent_id';
-    $select[] = 'COUNT(DISTINCT(sources.contact_id))                                                AS source_count';
-    $select[] = 'GROUP_CONCAT(COALESCE(source_contact_me.id, source_contact_random.id) SEPARATOR "' . CRM_Core_DAO::VALUE_SEPARATOR . '")                           AS source_contact_id';
-    $select[] = 'GROUP_CONCAT(COALESCE(source_contact_me.display_name, source_contact_random.display_name, "") SEPARATOR "' . CRM_Core_DAO::VALUE_SEPARATOR . '")       AS source_display_name';
-    $select[] = 'COUNT(DISTINCT(assignees.contact_id))                                              AS assignee_count';
-    $select[] = 'GROUP_CONCAT(COALESCE(assignee_contact_me.id, assignee_contact_random.id) SEPARATOR "' . CRM_Core_DAO::VALUE_SEPARATOR . '")                       AS assignee_contact_id';
-    $select[] = 'GROUP_CONCAT(COALESCE(assignee_contact_me.display_name, assignee_contact_random.display_name, "") SEPARATOR "' . CRM_Core_DAO::VALUE_SEPARATOR . '")   AS assignee_display_name';
+    $select[] = 'COUNT(DISTINCT(sources.contact_id)) AS source_count';
+    $select[] = 'GROUP_CONCAT(COALESCE(source_contact_me.id, source_contact_random.id) SEPARATOR "' . CRM_Core_DAO::VALUE_SEPARATOR . '") AS source_contact_id';
+    $select[] = 'GROUP_CONCAT(COALESCE(source_contact_me.display_name, source_contact_random.display_name, "") SEPARATOR "' . CRM_Core_DAO::VALUE_SEPARATOR . '") AS source_display_name';
+    $select[] = 'COUNT(DISTINCT(assignees.contact_id)) AS assignee_count';
+    $select[] = 'GROUP_CONCAT(COALESCE(assignee_contact_me.id, assignee_contact_random.id) SEPARATOR "' . CRM_Core_DAO::VALUE_SEPARATOR . '") AS assignee_contact_id';
+    $select[] = 'GROUP_CONCAT(COALESCE(assignee_contact_me.display_name, assignee_contact_random.display_name, "") SEPARATOR "' . CRM_Core_DAO::VALUE_SEPARATOR . '") AS assignee_display_name';
 
-    $join[] = 'LEFT JOIN civicrm_activity activity                ON acon.activity_id = activity.id';
-    $join[] = 'LEFT JOIN civicrm_activity_contact sources         ON (activity.id = sources.activity_id AND sources.record_type_id = 2)';
+    $join[] = 'LEFT JOIN civicrm_recurring_entity recurring_entity ON inner_result.activity_id = recurring_entity.entity_id';
+    $join[] = 'LEFT JOIN civicrm_activity_contact sources         ON (inner_result.activity_id = sources.activity_id AND sources.record_type_id = 2)';
     $join[] = 'LEFT JOIN civicrm_contact source_contact_random    ON (sources.contact_id = source_contact_random.id AND source_contact_random.is_deleted = 0)';
     $join[] = 'LEFT JOIN civicrm_contact source_contact_me        ON (sources.contact_id = source_contact_me.id AND source_contact_me.id = %1)';
-    $join[] = 'LEFT JOIN civicrm_activity_contact assignees       ON (activity.id = assignees.activity_id AND assignees.record_type_id = 1)';
+    $join[] = 'LEFT JOIN civicrm_activity_contact assignees       ON (inner_result.activity_id = assignees.activity_id AND assignees.record_type_id = 1)';
     $join[] = 'LEFT JOIN civicrm_contact assignee_contact_random  ON (assignees.contact_id = assignee_contact_random.id AND assignee_contact_random.is_deleted = 0)';
     $join[] = 'LEFT JOIN civicrm_contact assignee_contact_me      ON (assignees.contact_id = assignee_contact_me.id AND assignee_contact_me.id = %1)';
-    $join[] = 'LEFT JOIN civicrm_recurring_entity recurring_entity ON activity.id = recurring_entity.entity_id';
 
     // base query is complete, handle OPTIONAL columns/filters
 
     if ($params['optionalCols']['target_contact']) {
-      $select[] = 'COUNT(DISTINCT(targets.contact_id))                                              AS target_count';
-      $select[] = 'GROUP_CONCAT(COALESCE(target_contact_me.id, target_contact_random.id) SEPARATOR "' . CRM_Core_DAO::VALUE_SEPARATOR . '")                       AS target_contact_id';
-      $select[] = 'GROUP_CONCAT(COALESCE(target_contact_me.display_name, target_contact_random.display_name, "") SEPARATOR "' . CRM_Core_DAO::VALUE_SEPARATOR . '")   AS target_display_name';
+      $select[] = 'COUNT(DISTINCT(targets.contact_id)) AS target_count';
+      $select[] = 'GROUP_CONCAT(COALESCE(target_contact_me.id, target_contact_random.id) SEPARATOR "' . CRM_Core_DAO::VALUE_SEPARATOR . '") AS target_contact_id';
+      $select[] = 'GROUP_CONCAT(COALESCE(target_contact_me.display_name, target_contact_random.display_name, "") SEPARATOR "' . CRM_Core_DAO::VALUE_SEPARATOR . '") AS target_display_name';
 
-      $join[] = 'LEFT JOIN civicrm_activity_contact targets       ON (activity.id = targets.activity_id AND targets.record_type_id = 3)';
+      $join[] = 'LEFT JOIN civicrm_activity_contact targets       ON (inner_result.activity_id = targets.activity_id AND targets.record_type_id = 3)';
       $join[] = 'LEFT JOIN civicrm_contact target_contact_random  ON (targets.contact_id = target_contact_random.id AND target_contact_random.is_deleted = 0)';
       $join[] = 'LEFT JOIN civicrm_contact target_contact_me      ON (targets.contact_id = target_contact_me.id AND target_contact_me.id = %1)';
     }
+
+    if ($params['optionalCols']['duration']) {
+      $select[] = 'inner_result.activity_duration AS activity_duration';
+    }
+
+    if ($params['optionalCols']['case']) {
+      $select[] = 'inner_result.activity_case_id AS activity_case_id';
+    }
+
+    if ($params['optionalCols']['campaign_title']) {
+      $select[] = 'inner_result.activity_campaign_id AS activity_campaign_id';
+      $select[] = 'inner_result.activity_campaign_title AS activity_campaign_title';
+    }
+
+    // Assemble SELECT clause
+    $selectQuery = 'SELECT ';
+    $selectQuery .= implode(',', $select);
+    // Assemble JOIN clause
+    $joinQuery = implode(' ', $join);
+    // Assemble GROUP BY clause
+    $groupByQuery = 'GROUP BY ';
+    $groupByQuery .= implode(',', $groupBy);
+    return array($selectQuery, $joinQuery, $groupByQuery);
+  }
+
+  public static function selectClause($params) {
+    $select[] = 'activity.id AS activity_id';
+    $groupBy[] = 'activity.id';
+    $select[] = 'activity.activity_type_id AS activity_type_id';
+    $select[] = 'activity.subject AS activity_subject';
+    $select[] = 'activity.activity_date_time AS activity_date_time';
+    $select[] = 'activity.status_id AS activity_status_id';
+
+    $join[] = 'LEFT JOIN civicrm_activity activity                ON acon.activity_id = activity.id';
+
+    // base query is complete, handle OPTIONAL columns/filters
 
     if ($params['excludeCaseActivities'] || $params['optionalCols']['case']) {
       $join[] = 'LEFT JOIN civicrm_case_activity case_activity ON (activity.id = case_activity.activity_id)';
     }
 
     if ($params['optionalCols']['duration']) {
-      $select[] = 'activity.duration                                                                 AS activity_duration';
+      $select[] = 'activity.duration AS activity_duration';
     }
 
     if ($params['optionalCols']['case']) {
-      $select[] = 'case_activity.case_id                                                                   AS activity_case_id';
+      $select[] = 'case_activity.case_id AS activity_case_id';
     }
 
     if ($params['optionalCols']['campaign_title']) {
-      $select[] = 'activity.campaign_id                                                               AS activity_campaign_id';
-      $select[] = 'campaign.title                                                                     AS activity_campaign_title';
+      $select[] = 'activity.campaign_id AS activity_campaign_id';
+      $select[] = 'campaign.title AS activity_campaign_title';
 
       $join[] = 'LEFT JOIN civicrm_campaign campaign                ON (activity.campaign_id = campaign.id)';
     }
@@ -429,6 +471,7 @@ class CRM_Fastactivity_BAO_Activity extends CRM_Activity_DAO_Activity {
     $params['offset'] = ($params['page'] - 1) * $params['rp'];
     $params['rowCount'] = $params['rp'];
     $params['sort'] = CRM_Utils_Array::value('sortBy', $params);
+    $params['outerSort'] = CRM_Utils_Array::value('outerSortBy', $params);
     $params['caseId'] = NULL;
     $context = CRM_Utils_Array::value('context', $params);
 
