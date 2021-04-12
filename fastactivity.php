@@ -132,36 +132,25 @@ _fastactivity_civix_civicrm_angularModules($angularModules);
 }
 
 
-/*function fastactivity_civicrm_tabset($tabsetName, &$tabs, $context) {
-  // FIXME: For CiviCRM 4.7 we can use this hook instead.
-}*/
+function fastactivity_civicrm_tabset($tabsetName, &$tabs, $context) {
+  if ($tabsetName == 'civicrm/contact/view') {
+    $is_active = (bool) CRM_Fastactivity_Settings::getValue('fastactivity_replace_tab');
+    if ($is_active && !empty($context) && isset($context['contact_id'])) {
+      // ADD the fast activity tab as a new tab
+      $params = [];
+      $params['contact_id'] = $context['contact_id'];
+      $params['excludeCaseActivities'] = (bool) CRM_Fastactivity_Settings::getValue('tab_exclude_case_activities');
+      $weight = (int) CRM_Fastactivity_Settings::getValue('fastactivity_replace_tab_weight');
 
-/**
- * Replace the existing activities tab
- * @param $tabs
- * @param $contactID
- */
-function fastactivity_civicrm_tabs ( &$tabs, $contactID ) {
-  // We disable the built-in Activities tab under "Display Preferences" automatically when extension is enabled.
-  // It is not enough to just hide it as the built-in count functions will still be executed and this causes a performance issue on large databases.
-  // if you'd like to use the regular and the fast activity tabs side-by-side maybe consider
-  //  reversing and adjusting https://github.com/systopia/de.systopia.fastactivity/commit/aea4a43a22d4b89590bf953447dbfc1f3fb0e762
-
-  $is_active = (bool) CRM_Fastactivity_Settings::getValue('fastactivity_replace_tab');
-  if ($is_active) {
-    // ADD the fast activity tab as a new tab
-    $params['contact_id'] = $contactID;
-    $params['excludeCaseActivities'] = (bool) CRM_Fastactivity_Settings::getValue('tab_exclude_case_activities');
-    $weight = (int) CRM_Fastactivity_Settings::getValue('fastactivity_replace_tab_weight');
-
-    $tabs[] = array('title'  => ts('Activities'),
-                    'class'  => 'livePage',
-                    'id'     => 'fastactivity',
-                    'url'    => CRM_Utils_System::url('civicrm/contact/view/fastactivity', "reset=1&cid={$contactID}"),
-                    'weight' => $weight ? $weight : 40,
-                    'icon' => 'crm-i fa-tasks',
-                    'count'  => CRM_Fastactivity_BAO_Activity::getContactActivitiesCount($params),
-    );
+      $tabs[] = array('title'  => ts('Activities'),
+        'class'  => 'livePage',
+        'id'     => 'fastactivity',
+        'url'    => CRM_Utils_System::url('civicrm/contact/view/fastactivity', "reset=1&cid={$params['contact_id']}"),
+        'weight' => $weight ? $weight : 40,
+        'icon' => 'crm-i fa-tasks',
+        'count'  => CRM_Fastactivity_BAO_Activity::getContactActivitiesCount($params),
+      );
+    }
   }
 }
 
